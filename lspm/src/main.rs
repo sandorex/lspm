@@ -1,12 +1,13 @@
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
-use std::{
-    io::{BufRead, BufReader, Write},
-    process::Command,
-};
+use language_servers::get_language_server_defaults;
+use std::io::{BufRead, BufReader, Write};
 
 mod cli;
+mod engine;
+mod language_servers;
 
+// TODO remove options and just keep replace pattern
 struct Options {
     /// Pattern to replace in host->container communication (from, to)
     replace_pattern: (String, String),
@@ -34,28 +35,67 @@ fn transform(line: &mut String, options: &Options, flip: bool) {
 }
 
 fn main() -> Result<()> {
-    let args = cli::Cli::parse();
+    let mut args = cli::Cli::parse();
 
-    let options = Options::new(
-        &args.host_path,
-        args.container_path
-            .as_ref()
-            .expect("container_path getting not implemented"),
+    if args.list {
+        // TODO
+        todo!("listing not implemented yet");
+    }
+
+    // TODO search and check for each engine
+    let engine = args.engine.first().unwrap();
+    assert!(engine.is_available());
+
+    // if language server is picked get the defaults and apply them
+    if let Some(language_server) = args.language_server {
+        let defaults = get_language_server_defaults(language_server);
+
+        // only apply them if not override in cli
+        if args.image.is_none() {
+            args.image = Some(defaults.image.to_string())
+        }
+
+        if args.cmd.is_empty() {
+            args.cmd.extend(defaults.cmd.iter().map(|x| x.to_string()));
+        }
+    }
+
+    assert!(args.image.is_some());
+    assert!(!args.cmd.is_empty());
+
+    if args.container_path.is_none() {
+        args.container_path = match engine.get_image_workdir(&args.image.as_ref().unwrap())? {
+            Some(x) => Some(x.clone()),
+            None => {
+                return Err(anyhow!(
+                    "Image {:?} does not have workdir defined and container_path is not set",
+                    args.image.as_ref().unwrap()
+                ));
+            }
+        };
+    }
+
+    assert!(args.container_path.is_some());
+    assert!(
+        engine
+            .image_exists(args.image.as_ref().unwrap())
+            .is_ok_and(|x| x == true)
     );
+
+    let options = Options::new(&args.host_path, args.container_path.as_ref().unwrap());
+
+    let mut child = engine.start_container(
+        "",
+        args.image.as_ref().unwrap(),
+        args.container_path.as_ref().unwrap(),
+        args.cmd.iter().map(|x| x.as_str()).collect(),
+    )?;
+
+    let mut child_stdin = child.stdin.take().unwrap();
+    let mut child_stdout = BufReader::new(child.stdout.take().unwrap());
 
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-
-    // TODO start container
-    let mut cmd_handle = Command::new("cat")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .with_context(|| anyhow!("Error spawning command"))?;
-
-    let mut child_stdin = cmd_handle.stdin.take().unwrap();
-    let mut child_stdout = BufReader::new(cmd_handle.stdout.take().unwrap());
 
     std::thread::scope(|s| {
         // main stdin -> child stdin
@@ -100,7 +140,7 @@ fn main() -> Result<()> {
             }
         });
 
-        cmd_handle.wait().expect("Error waiting for child");
+        child.wait().expect("Error waiting for child");
     });
 
     Ok(())
