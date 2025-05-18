@@ -2,12 +2,12 @@ FROM nixos/nix AS build
 
 RUN mkdir -p /output/store
 RUN nix-channel --update
-RUN nix-env --profile /output/profile --install nodePackages_latest.vscode-json-languageserver
+RUN nix-env --profile /output/profile --install vscode-json-languageserver
 RUN cp -va $(nix-store -qR /output/profile) /output/store
 
 FROM scratch
 LABEL name="json-language-server" \
-      author="@sandorex <rzhw3h@gmail.com>"
+      author="@sandorex <rzhw3h@gmail.com>" \
       version="25.05" \
       license="MIT" \
       description="Minimal container containing vscode JSON LSP"

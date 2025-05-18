@@ -2,15 +2,15 @@ FROM nixos/nix AS build
 
 RUN mkdir -p /output/store
 RUN nix-channel --update
-RUN nix-env --profile /output/profile --install lua-language-server
+RUN nix-env --profile /output/profile --install yaml-language-server
 RUN cp -va $(nix-store -qR /output/profile) /output/store
 
 FROM scratch
-LABEL name="lua-language-server" \
+LABEL name="yaml-language-server" \
       author="@sandorex <rzhw3h@gmail.com>" \
       version="25.05" \
       license="MIT" \
-      description="Minimal container containing LuaLS"
+      description="Minimal container containing YAML LSP"
 
 COPY --from=build /output/store /nix/store
 COPY --from=build /output/profile/ /usr/local/
